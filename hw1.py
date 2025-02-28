@@ -20,24 +20,14 @@ def read_ratings_data(f):
 
     ratings_data = defaultdict(list)
 
-    try:
-        with open(f, "r") as file:
-            for line in file:
-                line = line.strip()
-                if line:
-                    parts = line.split("|")
-
-                    if len(parts) == 3:
-                        movie, rating, _ = parts
-                        try:
-                            ratings_data[movie].append(float(rating))
-                        except ValueError:
-                            continue
-
-    except FileNotFoundError:
-        return {}
-    except Exception:
-        return {}
+    with open(f, "r") as file:
+        for line in file:
+            line = line.strip()
+            if line:
+                parts = line.split("|")
+                if len(parts) == 3:
+                    movie, rating, _ = map(str.strip, parts)
+                    ratings_data.setdefault(movie, []).append(float(rating))
 
     return ratings_data
 
@@ -50,21 +40,15 @@ def read_movie_genre(f):
 
     movie_genres = {}
 
-    try:
-        with open(f, "r") as file:
-            for line in file:
-                line = line.strip()
-                if line:  # Proceed only if the line is not empty
-                    parts = line.split("|")
+    with open(f, "r") as file:
+        for line in file:
+            line = line.strip()
+            if line:
+                parts = line.split("|")
 
-                    if len(parts) == 3:  # Expecting genre|user_id|movie
-                        genre, _, movie = parts
-                        movie_genres[movie.strip()] = genre.strip()
-
-    except FileNotFoundError:
-        return {}
-    except Exception:
-        return {}
+                if len(parts) == 3:
+                    genre, _, movie = map(str.strip, parts)
+                    movie_genres[movie] = genre
 
     return movie_genres
 
@@ -80,7 +64,10 @@ def create_genre_dict(d):
 
     genre_dict = defaultdict(list)
     for movie, genre in d.items():
+        if genre not in genre_dict:
+            genre_dict[genre] = []
         genre_dict[genre].append(movie)
+
     return genre_dict
 
 
@@ -92,7 +79,9 @@ def calculate_average_rating(d):
 
     average_ratings = {}
     for movie, ratings in d.items():
-        average_ratings[movie] = sum(ratings) / len(ratings)
+        if ratings:
+            average_ratings[movie] = sum(ratings) / len(ratings)
+
     return average_ratings
 
 
@@ -176,11 +165,15 @@ def read_user_ratings(f):
     # parameter f: movie ratings file name (e.g. "movieRatingSample.txt")
     # return: dictionary that maps user to list of (movie,rating)
     # WRITE YOUR CODE BELOW
+
     user_ratings = defaultdict(list)
     with open(f, "r") as file:
         for line in file:
-            user_id, movie, rating = line.strip().split()
-            user_ratings[user_id].append((movie, float(rating)))
+            if line:
+                parts = line.split("|")
+                if len(parts) == 3:
+                    movie, rating, user_id = map(str.strip, parts)
+                    user_ratings[user_id].append((movie, float(rating)))
     return user_ratings
 
 
@@ -191,13 +184,24 @@ def get_user_genre(user_id, user_to_movies, movie_to_genre):
     # parameter movie_to_genre: dictionary that maps movie to genre
     # return: top genre that user likes
     # WRITE YOUR CODE BELOW
-    movie_ratings = user_to_movies.get(user_id, [])
-    genre_count = Counter()
-    for movie, rating in movie_ratings:
+
+    rated_movies = user_to_movies.get(user_id, [])
+    genre_ratings = {}
+    
+    for movie, rating in rated_movies:
         genre = movie_to_genre.get(movie)
         if genre:
-            genre_count[genre] += 1
-    return genre_count.most_common(1)[0][0] if genre_count else None
+            if genre not in genre_ratings:
+                genre_ratings[genre] = []
+            genre_ratings[genre].append(rating)
+    
+    avg_genre_ratings = {}
+    for genre, ratings in genre_ratings.items():
+        avg_genre_ratings[genre] = sum(ratings) / len(ratings)
+    
+    top_genre = max(avg_genre_ratings, key=avg_genre_ratings.get)
+    
+    return top_genre
 
 
 # 4.3
@@ -208,13 +212,21 @@ def recommend_movies(user_id, user_to_movies, movie_to_genre, movie_to_average_r
     # parameter movie_to_average_rating: dictionary that maps movie to average rating
     # return: dictionary that maps movie to average rating
     # WRITE YOUR CODE BELOW
+
+    top_genre = get_user_genre(user_id, user_to_movies, movie_to_genre)
+    
+    movies_in_genre = {movie for movie, genre in movie_to_genre.items() if genre == top_genre}
+    
     rated_movies = {movie for movie, _ in user_to_movies.get(user_id, [])}
+    unrated_movies = movies_in_genre - rated_movies
+    
     recommended = {
-        movie: rating
-        for movie, rating in movie_to_average_rating.items()
-        if movie not in rated_movies
+        movie: movie_to_average_rating[movie] 
+        for movie in unrated_movies if movie in movie_to_average_rating
     }
-    return dict(sorted(recommended.items(), key=lambda x: x[1], reverse=True))
+    sorted_recommended = dict(sorted(recommended.items(), key=lambda x: x[1], reverse=True))
+    
+    return dict(list(sorted_recommended.items())[:3])
 
 
 # -------- main function for your testing -----
@@ -222,60 +234,82 @@ def main():
     # write all your test code here
     # this function will be ignored by us when grading
 
-    # Test 1: Reading ratings data
-    print("Testing read_ratings_data()")
-    ratings_data = read_ratings_data("movieRatingSample.txt")
-    print(f"Ratings data (sample): {dict(list(ratings_data.items())[::])}")
-    print("Test Passed!" if ratings_data else "Test Failed!")
+   # Path to the sample files
+    rating_file = 'movieRatingSample.txt'
+    genre_file = 'genreMovieSample.txt'
 
-    # Test 2: Reading movie genres
-    print("\nTesting read_movie_genre()")
-    movie_genres = read_movie_genre("genreMovieSample.txt")
-    print(f"Movie genres (sample): {dict(list(movie_genres.items())[::])}")
-    print("Test Passed!" if movie_genres else "Test Failed!")
+# ------ TASK 1: READING DATA --------
 
-    # Test 3: Creating genre dictionary
-    print("\nTesting create_genre_dict()")
+# Read the ratings and genre data
+    ratings_data = read_ratings_data(rating_file)
+    movie_genres = read_movie_genre(genre_file)
+
+# Print the ratings data
+    print("Ratings Data:")
+    print(ratings_data)
+
+# Print the movie genres
+    print("\nMovie Genres:")
+    print(movie_genres)
+
+
+# ------ TASK 2: PROCESSING DATA --------
+
+# Create a genre dictionary
     genre_dict = create_genre_dict(movie_genres)
-    print(f"Genre dictionary (sample): {dict(list(genre_dict.items())[::])}")
-    print("Test Passed!" if genre_dict else "Test Failed!")
+    print("\nGenre Dictionary:")
+    print(genre_dict)
 
-    # Test 4: Calculating average ratings
-    print("\nTesting calculate_average_rating()")
+# Calculate average ratings
     average_ratings = calculate_average_rating(ratings_data)
-    print(f"Average ratings (sample): {dict(list(average_ratings.items())[::])}")
-    print("Test Passed!" if average_ratings else "Test Failed!")
+    print("\nAverage Ratings:")
+    print(average_ratings)
 
-    # Test 5: Getting popular movies (Top 5)
-    print("\nTesting get_popular_movies()")
-    popular_movies = get_popular_movies(average_ratings, 5)
-    print(f"Popular movies (top 5): {popular_movies}")
-    print("Test Passed!" if popular_movies else "Test Failed!")
 
-    # Test 6: Filtering movies with ratings >= 4
-    print("\nTesting filter_movies()")
-    filtered_movies = filter_movies(average_ratings, 4)
-    print(f"Movies with rating >= 4: {filtered_movies}")
-    print("Test Passed!" if filtered_movies else "Test Failed!")
+# ------ TASK 3: RECOMMENDATION --------
 
-    # Test 7: Getting popular movies in a specific genre (e.g., Comedy)
-    print("\nTesting get_popular_in_genre()")
-    popular_comedy_movies = get_popular_in_genre("Comedy", genre_dict, average_ratings)
-    print(f"Popular comedy movies: {popular_comedy_movies}")
-    print("Test Passed!" if popular_comedy_movies else "Test Failed!")
+# Get top 10 popular movies by average rating
+    popular_movies = get_popular_movies(average_ratings, 10)
+    print("\nTop 10 Popular Movies by Average Rating:")
+    print(popular_movies)
 
-    # Test 8: Getting average rating for a specific genre (e.g., Comedy)
-    print("\nTesting get_genre_rating()")
-    comedy_genre_rating = get_genre_rating("Comedy", genre_dict, average_ratings)
-    print(f"Average rating for 'Comedy' genre: {comedy_genre_rating}")
-    print("Test Passed!" if comedy_genre_rating else "Test Failed!")
+# Filter movies with ratings >= 3
+    filtered_movies = filter_movies(average_ratings, 3)
+    print("\nMovies with Ratings >= 3:")
+    print(filtered_movies)
 
-    # Test 9: Calculating genre popularity
-    print("\nTesting genre_popularity()")
-    genre_popularity_scores = genre_popularity(genre_dict, average_ratings)
-    print(f"Genre popularity (by average ratings): {genre_popularity_scores}")
-    print("Test Passed!" if genre_popularity_scores else "Test Failed!")
+# Get top 5 popular movies in the "Action" genre
+    popular_action_movies = get_popular_in_genre('Action', genre_dict, average_ratings, 5)
+    print("\nTop 5 Popular Action Movies:")
+    print(popular_action_movies)
 
+# Get average rating for the "Adventure" genre
+    adventure_rating = get_genre_rating('Adventure', genre_dict, average_ratings)
+    print("\nAverage Rating for Adventure Movies:")
+    print(adventure_rating)
+
+# Get top 5 most popular genres
+    genre_popularity_result = genre_popularity(genre_dict, average_ratings, 5)
+    print("\nTop 5 Most Popular Genres:")
+    print(genre_popularity_result)
+
+
+# ------ TASK 4: USER FOCUSED --------
+
+# Read the user ratings data
+    user_ratings = read_user_ratings(rating_file)
+    print("\nUser Ratings Data:")
+    print(user_ratings)
+
+# Get top genre liked by user "6"
+    top_genre_user_6 = get_user_genre('6', user_ratings, movie_genres)
+    print("\nTop Genre Liked by User 6:")
+    print(top_genre_user_6)
+
+# Get movie recommendations for user "6"
+    recommended_movies = recommend_movies('11', user_ratings, movie_genres, average_ratings)
+    print("\nRecommended Movies for User 6:")
+    print(recommended_movies)
 
 # DO NOT write ANY CODE (including variable names) outside of any of the above functions
 # In other words, ALL code your write (including variable names) MUST be inside one of
